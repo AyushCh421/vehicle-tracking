@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gps_tracking
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/gps_tracking
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+
+  gps-simulator:
+    build: ./gps_simulator
+    restart: unless-stopped
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      VEHICLE_ID: "1"
+      PUBLISH_INTERVAL: "5"
+      BACKEND_URL: http://backend:8000
+      SIM_USERNAME: user1
+      SIM_PASSWORD: password1
+    depends_on:
+      - backend
+      - mosquitto
+
+volumes:
+  db_data:
+  mosquitto_data:
